@@ -11,21 +11,20 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
-    StringSelectMenuBuilder
+    StringSelectMenuBuilder,
+    AttachmentBuilder
 } = require('discord.js');
 const { 
     joinVoiceChannel, 
     createAudioPlayer, 
     createAudioResource, 
-    AudioPlayerStatus, 
-    VoiceConnectionStatus,
-    getVoiceConnection
+    AudioPlayerStatus
 } = require('@discordjs/voice');
 const play = require('play-dl');
 const { createCanvas } = require('canvas');
 const express = require('express');
 
-// 🌐 WEB SERVER HTTP PER MANTENERE IL BOT SVEGLIO SU HOSTING CLOUD (Render, Railway, VPS)
+// 🌐 WEB SERVER HTTP PER MANTENERE IL BOT SVEGLIO 24/7 SU HOSTING CLOUD (Render, Railway, VPS)
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('🤖 Bot Uranus online e operativo 24/7!'));
@@ -41,7 +40,7 @@ const client = new Client({
     ]
 });
 
-// ID PROPRIETARIO SERVER
+// ID PROPRIETARIO (ESCLUSIVITÀ COMANDI RISERVATI)
 const OWNER_ID = "1425167749105324133"; 
 
 // RUOLI BASE
@@ -53,17 +52,15 @@ const ADMIN_MASTER_PASSWORD = "UranusAdmin2026!";
 const utentiRegistrati = new Map();
 const tempChannels = new Map();
 
-// STRUTTURA STRUMETI MUSICA (Coda per ciascun Server)
+// STRUTTURA STRUMENTI MUSICA (Coda per ciascun Server)
 const musicQueues = new Map();
 
 client.once('ready', () => {
     console.log(`✅ Bot Uranus pronto e online come ${client.user.tag}!`);
-    
-    // Imposta lo stato/attività del bot
-    client.user.setActivity('!help | Uranus.SMP', { type: 3 }); // Type 3 = Watching
+    client.user.setActivity('!help | Uranus.SMP', { type: 3 });
 });
 
-// 🎨 GENERATORE ICONA GRAFICA AUTOMATICA (AI/CANVAS)
+// 🎨 GENERATORE ICONA GRAFICA AUTOMATICA (CANVAS)
 function generaIconaServer(testoIniziale) {
     const width = 512;
     const height = 512;
@@ -189,8 +186,12 @@ client.on('messageCreate', async (message) => {
     if (command === 'help') {
         const embedHelp = new EmbedBuilder()
             .setTitle('🤖 URANUS BOT | COMANDI E GUIDA')
-            .setDescription('Ecco la lista di tutti i comandi disponibili per gestire il server e riprodurre musica:')
+            .setDescription('Ecco la lista dei comandi disponibili:')
             .addFields(
+                { 
+                    name: '🖼️ Grafica (Solo Owner)', 
+                    value: '• `!banner`: Genera ed invia il banner grafico ufficiale del bot (Riservato al proprietario).' 
+                },
                 { 
                     name: '🎵 Comandi Musica', 
                     value: '• `!play <titolo/link>`: Riproduce una canzone o la aggiunge alla coda.\n' +
@@ -199,14 +200,127 @@ client.on('messageCreate', async (message) => {
                            '• `!queue`: Mostra la lista dei brani in attesa.' 
                 },
                 { 
-                    name: '⚙️ Comandi Amministrazione (Owner)', 
-                    value: '• `!preset-server`: Apre il menu di configurazione per creare canali, categorie, ruoli e icona.' 
+                    name: '⚙️ Comandi Amministrazione (Solo Owner)', 
+                    value: '• `!preset-server`: Apre il menu di configurazione con 20 preset per creare canali, ruoli ed icone.' 
                 }
             )
             .setColor('#00d2ff')
-            .setFooter({ text: 'Uranus Bot • Sistema Multilivello' });
+            .setFooter({ text: 'Uranus Bot • Community System' });
 
         return message.reply({ embeds: [embedHelp] });
+    }
+
+    // COMANDO BANNER BOT (ESCLUSIVO PER TE)
+    if (command === 'banner') {
+        if (message.author.id !== OWNER_ID) {
+            return message.reply('❌ **Accesso Negato!** Solo il proprietario del bot può generare il banner.');
+        }
+
+        const width = 1024;
+        const height = 500;
+        const canvas = createCanvas(width, height);
+        const ctx = canvas.getContext('2d');
+
+        // 1. Sfondo Galassia / Sfumatura Cosmica
+        const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+        bgGradient.addColorStop(0, '#060417');
+        bgGradient.addColorStop(0.5, '#120b38');
+        bgGradient.addColorStop(1, '#05182e');
+        ctx.fillStyle = bgGradient;
+        ctx.fillRect(0, 0, width, height);
+
+        // 2. Stelle e polvere cosmica
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < 70; i++) {
+            const x = Math.random() * width;
+            const y = Math.random() * height;
+            const radius = Math.random() * 2;
+            const alpha = Math.random();
+            ctx.globalAlpha = alpha;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1.0;
+
+        // 3. Alone di luce centrale
+        const glow = ctx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, 350);
+        glow.addColorStop(0, 'rgba(0, 210, 255, 0.25)');
+        glow.addColorStop(0.6, 'rgba(114, 9, 183, 0.15)');
+        glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, width, height);
+
+        // 4. Pianeta Uranus (Sfera e Anelli)
+        const centerX = width / 2;
+        const centerY = 140;
+
+        ctx.strokeStyle = 'rgba(0, 210, 255, 0.4)';
+        ctx.lineWidth = 6;
+        ctx.beginPath();
+        ctx.ellipse(centerX, centerY, 110, 30, Math.PI / 8, Math.PI, Math.PI * 2);
+        ctx.stroke();
+
+        const planetGrad = ctx.createLinearGradient(centerX - 45, centerY - 45, centerX + 45, centerY + 45);
+        planetGrad.addColorStop(0, '#00d2ff');
+        planetGrad.addColorStop(0.7, '#3a7bd5');
+        planetGrad.addColorStop(1, '#000046');
+        ctx.fillStyle = planetGrad;
+        ctx.beginPath();
+        ctx.arc(centerX, centerY, 50, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.strokeStyle = '#00d2ff';
+        ctx.lineWidth = 7;
+        ctx.beginPath();
+        ctx.ellipse(centerX, centerY, 110, 30, Math.PI / 8, 0, Math.PI);
+        ctx.stroke();
+
+        // 5. Cornice / Linee Cyberpunk
+        ctx.strokeStyle = '#00d2ff';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(80, 260);
+        ctx.lineTo(width - 80, 260);
+        ctx.stroke();
+
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillRect(80, 256, 12, 11);
+        ctx.fillRect(width - 92, 256, 12, 11);
+
+        // 6. Testo Principale
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'black 68px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        ctx.shadowColor = '#00d2ff';
+        ctx.shadowBlur = 20;
+        ctx.fillText('URANUS BOT 👑', width / 2, 320);
+        ctx.shadowBlur = 0;
+
+        // 7. Sottotitolo
+        ctx.fillStyle = '#00f2fe';
+        ctx.font = 'bold 24px sans-serif';
+        ctx.fillText('OFFICIAL GAMING & COMMUNITY BOT', width / 2, 375);
+
+        // 8. Badges Tematici
+        ctx.fillStyle = '#a0a0c0';
+        ctx.font = 'bold 18px sans-serif';
+        ctx.fillText('⛏️ Minecraft SMP  •  🌵 Brawl Stars  •  🧱 Roblox Studio  •  🎵 24/7 Music', width / 2, 430);
+
+        // Invio dell'immagine generata
+        const buffer = canvas.toBuffer('image/png');
+        const attachment = new AttachmentBuilder(buffer, { name: 'uranus-bot-banner.png' });
+
+        const embedBanner = new EmbedBuilder()
+            .setTitle('🌌 Banner Ufficiale Uranus Bot')
+            .setDescription('Ecco l\'immagine del banner generata in risoluzione **1024x500**!')
+            .setColor('#00d2ff')
+            .setImage('attachment://uranus-bot-banner.png')
+            .setFooter({ text: 'Uranus.SMP • Reserved to Owner' });
+
+        return message.reply({ embeds: [embedBanner], files: [attachment] });
     }
 
     // COMANDO PLAY
@@ -272,7 +386,6 @@ client.on('messageCreate', async (message) => {
 
                 serverQueue.connection = connection;
 
-                // Listener evento termine brano
                 serverQueue.player.on(AudioPlayerStatus.Idle, () => {
                     serverQueue.songs.shift();
                     playSong(message.guild.id);
@@ -331,10 +444,10 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [embedQueue] });
     }
 
-    // COMANDO SELEZIONE PRESET SERVER
+    // COMANDO SELEZIONE PRESET SERVER (ESCLUSIVO PER TE)
     if (command === 'preset-server') {
         if (message.author.id !== OWNER_ID) {
-            return message.reply('❌ **Accesso Negato!** Solo il proprietario del server può eseguire questo comando.');
+            return message.reply('❌ **Accesso Negato!** Solo il proprietario del bot può eseguire questo comando.');
         }
 
         const menuPreset1 = new StringSelectMenuBuilder()
