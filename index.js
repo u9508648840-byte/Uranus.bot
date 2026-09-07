@@ -11,8 +11,7 @@ const {
     TextInputBuilder,
     TextInputStyle,
     ChannelType,
-    StringSelectMenuBuilder,
-    AttachmentBuilder
+    StringSelectMenuBuilder
 } = require('discord.js');
 const { 
     joinVoiceChannel, 
@@ -24,7 +23,7 @@ const play = require('play-dl');
 const { createCanvas } = require('canvas');
 const express = require('express');
 
-// 🌐 WEB SERVER HTTP PER MANTENERE IL BOT SVEGLIO 24/7 SU HOSTING CLOUD (Render, Railway, VPS)
+// 🌐 WEB SERVER HTTP PER MANTENERE IL BOT SVEGLIO 24/7
 const app = express();
 const PORT = process.env.PORT || 3000;
 app.get('/', (req, res) => res.send('🤖 Bot Uranus online e operativo 24/7!'));
@@ -40,24 +39,24 @@ const client = new Client({
     ]
 });
 
-// ID PROPRIETARIO (ESCLUSIVITÀ COMANDI RISERVATI)
-const OWNER_ID = "1425167749105324133"; 
-
-// RUOLI BASE
+// DEFINIZIONE NOMI RUOLI SERVER
+const RUOLO_OWNER = "👑 Owner";
 const RUOLO_OSPITE = "Ospite";
 const RUOLO_VERIFICATO = "Membro";
-const RUOLO_ADMIN = "Amministratore";
+const RUOLO_VIP = "💎 VIP";
+const RUOLO_CREATOR = "🎬 Content Creator";
+const RUOLO_DEV_BUILDER = "🔧 Builder / Dev";
+const RUOLO_HELPER = "🛟 Helper";
+const RUOLO_MODERATORE = "🛡️ Moderatore";
+const RUOLO_ADMIN = "👑 Amministratore";
 
-const ADMIN_MASTER_PASSWORD = "UranusAdmin2026!";
 const utentiRegistrati = new Map();
 const tempChannels = new Map();
-
-// STRUTTURA STRUMENTI MUSICA (Coda per ciascun Server)
 const musicQueues = new Map();
 
 client.once('ready', () => {
     console.log(`✅ Bot Uranus pronto e online come ${client.user.tag}!`);
-    client.user.setActivity('!help | Uranus.SMP', { type: 3 });
+    client.user.setActivity('!help | Uranus System', { type: 3 });
 });
 
 // 🎨 GENERATORE ICONA GRAFICA AUTOMATICA (CANVAS)
@@ -89,18 +88,69 @@ function generaIconaServer(testoIniziale) {
     return canvas.toBuffer('image/png');
 }
 
-// GESTIONE RUOLI SERVER
+// 🛡️ CREAZIONE RUOLI E ASSEGNAZIONE AUTOMATICA AL PROPRIETARIO DEL SERVER
 async function gestisciRuoli(guild) {
+    let rOwner = guild.roles.cache.find(r => r.name === RUOLO_OWNER) || 
+        await guild.roles.create({ 
+            name: RUOLO_OWNER, 
+            color: '#ff0055', 
+            permissions: [PermissionFlagsBits.Administrator], 
+            reason: 'Ruolo Proprietario Server' 
+        });
+
     let rOspite = guild.roles.cache.find(r => r.name === RUOLO_OSPITE) || 
         await guild.roles.create({ name: RUOLO_OSPITE, color: '#808080', reason: 'Preset Server' });
     
     let rMembro = guild.roles.cache.find(r => r.name === RUOLO_VERIFICATO) || 
         await guild.roles.create({ name: RUOLO_VERIFICATO, color: '#2ecc71', reason: 'Preset Server' });
 
-    let rAdmin = guild.roles.cache.find(r => r.name === RUOLO_ADMIN) || 
-        await guild.roles.create({ name: RUOLO_ADMIN, color: '#e74c3c', permissions: [PermissionFlagsBits.Administrator], reason: 'Preset Server' });
+    let rVip = guild.roles.cache.find(r => r.name === RUOLO_VIP) || 
+        await guild.roles.create({ name: RUOLO_VIP, color: '#f1c40f', reason: 'Preset Server' });
 
-    return { rOspite, rMembro, rAdmin };
+    let rCreator = guild.roles.cache.find(r => r.name === RUOLO_CREATOR) || 
+        await guild.roles.create({ name: RUOLO_CREATOR, color: '#9b59b6', reason: 'Preset Server' });
+
+    let rDev = guild.roles.cache.find(r => r.name === RUOLO_DEV_BUILDER) || 
+        await guild.roles.create({ name: RUOLO_DEV_BUILDER, color: '#e67e22', reason: 'Preset Server' });
+
+    let rHelper = guild.roles.cache.find(r => r.name === RUOLO_HELPER) || 
+        await guild.roles.create({ 
+            name: RUOLO_HELPER, 
+            color: '#1abc9c', 
+            permissions: [PermissionFlagsBits.MuteMembers, PermissionFlagsBits.MoveMembers],
+            reason: 'Preset Server' 
+        });
+
+    let rMod = guild.roles.cache.find(r => r.name === RUOLO_MODERATORE) || 
+        await guild.roles.create({ 
+            name: RUOLO_MODERATORE, 
+            color: '#e74c3c', 
+            permissions: [
+                PermissionFlagsBits.ManageMessages, 
+                PermissionFlagsBits.KickMembers, 
+                PermissionFlagsBits.BanMembers, 
+                PermissionFlagsBits.MuteMembers,
+                PermissionFlagsBits.DeafenMembers,
+                PermissionFlagsBits.MoveMembers
+            ], 
+            reason: 'Preset Server' 
+        });
+
+    let rAdmin = guild.roles.cache.find(r => r.name === RUOLO_ADMIN) || 
+        await guild.roles.create({ 
+            name: RUOLO_ADMIN, 
+            color: '#8e44ad', 
+            permissions: [PermissionFlagsBits.Administrator], 
+            reason: 'Preset Server' 
+        });
+
+    // 👑 Assegna automaticamente il ruolo Owner al proprietario del server
+    const serverOwner = await guild.fetchOwner().catch(() => null);
+    if (serverOwner) {
+        await serverOwner.roles.add(rOwner).catch(() => {});
+    }
+
+    return { rOwner, rOspite, rMembro, rVip, rCreator, rDev, rHelper, rMod, rAdmin };
 }
 
 // PANNELLI REGOLAMENTO ED AUTENTICAZIONE
@@ -122,23 +172,21 @@ async function inviaPannelliBase(guild, chVerifica, chRegole) {
         .setTitle('🛡️ VERIFICA E ACCESSO COMMUNITY')
         .setDescription(
             'Benvenuto nel server!\n\n' +
-            '• **Nuovi Utenti**: Clicca su **Registrati** per creare il tuo account.\n' +
-            '• **Utenti Registrati**: Clicca su **Accedi** per autenticarti.\n' +
-            '• **Staff**: Clicca su **Accedi Admin** ed inserisci la password di amministrazione.'
+            '• **Nuovi Utenti**: Clicca su **Registrati** per creare il tuo account ed accedere alle chat.\n' +
+            '• **Utenti Registrati**: Clicca su **Accedi** se hai già effettuato la registrazione.'
         )
         .setColor('#2b2d31')
         .setFooter({ text: 'Sistema di Sicurezza Account' });
 
     const bottoni = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('btn_registrati').setLabel('Registrati 📝').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('btn_accedi').setLabel('Accedi 🔑').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('btn_admin').setLabel('Accedi Admin 👑').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('btn_accedi').setLabel('Accedi 🔑').setStyle(ButtonStyle.Success)
     );
 
     await chVerifica.send({ embeds: [embedAuth], components: [bottoni] });
 }
 
-// 🎵 FUNZIONE PER RIPRODURRE LA MUSICA
+// 🎵 RIPRODUZIONE MUSICA
 async function playSong(guildId) {
     const serverQueue = musicQueues.get(guildId);
     if (!serverQueue || serverQueue.songs.length === 0) {
@@ -182,25 +230,21 @@ client.on('messageCreate', async (message) => {
     const args = message.content.slice(1).trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // COMANDO HELP / DESCRIZIONE BOT
+    // COMANDO HELP
     if (command === 'help') {
         const embedHelp = new EmbedBuilder()
             .setTitle('🤖 URANUS BOT | COMANDI E GUIDA')
             .setDescription('Ecco la lista dei comandi disponibili:')
             .addFields(
                 { 
-                    name: '🖼️ Grafica (Solo Owner)', 
-                    value: '• `!banner`: Genera ed invia il banner grafico ufficiale del bot (Riservato al proprietario).' 
-                },
-                { 
-                    name: '🎵 Comandi Musica', 
+                    name: '🎵 Comandi Musica (Tutti gli utenti)', 
                     value: '• `!play <titolo/link>`: Riproduce una canzone o la aggiunge alla coda.\n' +
                            '• `!skip`: Passa alla canzone successiva nella coda.\n' +
                            '• `!stop`: Interrompe la musica e disconnette il bot dalla vocale.\n' +
                            '• `!queue`: Mostra la lista dei brani in attesa.' 
                 },
                 { 
-                    name: '⚙️ Comandi Amministrazione (Solo Owner)', 
+                    name: '⚙️ Comandi Amministrazione (Solo Proprietario del Server)', 
                     value: '• `!preset-server`: Apre il menu di configurazione con 20 preset per creare canali, ruoli ed icone.' 
                 }
             )
@@ -208,119 +252,6 @@ client.on('messageCreate', async (message) => {
             .setFooter({ text: 'Uranus Bot • Community System' });
 
         return message.reply({ embeds: [embedHelp] });
-    }
-
-    // COMANDO BANNER BOT (ESCLUSIVO PER TE)
-    if (command === 'banner') {
-        if (message.author.id !== OWNER_ID) {
-            return message.reply('❌ **Accesso Negato!** Solo il proprietario del bot può generare il banner.');
-        }
-
-        const width = 1024;
-        const height = 500;
-        const canvas = createCanvas(width, height);
-        const ctx = canvas.getContext('2d');
-
-        // 1. Sfondo Galassia / Sfumatura Cosmica
-        const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-        bgGradient.addColorStop(0, '#060417');
-        bgGradient.addColorStop(0.5, '#120b38');
-        bgGradient.addColorStop(1, '#05182e');
-        ctx.fillStyle = bgGradient;
-        ctx.fillRect(0, 0, width, height);
-
-        // 2. Stelle e polvere cosmica
-        ctx.fillStyle = '#ffffff';
-        for (let i = 0; i < 70; i++) {
-            const x = Math.random() * width;
-            const y = Math.random() * height;
-            const radius = Math.random() * 2;
-            const alpha = Math.random();
-            ctx.globalAlpha = alpha;
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        ctx.globalAlpha = 1.0;
-
-        // 3. Alone di luce centrale
-        const glow = ctx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, 350);
-        glow.addColorStop(0, 'rgba(0, 210, 255, 0.25)');
-        glow.addColorStop(0.6, 'rgba(114, 9, 183, 0.15)');
-        glow.addColorStop(1, 'rgba(0, 0, 0, 0)');
-        ctx.fillStyle = glow;
-        ctx.fillRect(0, 0, width, height);
-
-        // 4. Pianeta Uranus (Sfera e Anelli)
-        const centerX = width / 2;
-        const centerY = 140;
-
-        ctx.strokeStyle = 'rgba(0, 210, 255, 0.4)';
-        ctx.lineWidth = 6;
-        ctx.beginPath();
-        ctx.ellipse(centerX, centerY, 110, 30, Math.PI / 8, Math.PI, Math.PI * 2);
-        ctx.stroke();
-
-        const planetGrad = ctx.createLinearGradient(centerX - 45, centerY - 45, centerX + 45, centerY + 45);
-        planetGrad.addColorStop(0, '#00d2ff');
-        planetGrad.addColorStop(0.7, '#3a7bd5');
-        planetGrad.addColorStop(1, '#000046');
-        ctx.fillStyle = planetGrad;
-        ctx.beginPath();
-        ctx.arc(centerX, centerY, 50, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = '#00d2ff';
-        ctx.lineWidth = 7;
-        ctx.beginPath();
-        ctx.ellipse(centerX, centerY, 110, 30, Math.PI / 8, 0, Math.PI);
-        ctx.stroke();
-
-        // 5. Cornice / Linee Cyberpunk
-        ctx.strokeStyle = '#00d2ff';
-        ctx.lineWidth = 3;
-        ctx.beginPath();
-        ctx.moveTo(80, 260);
-        ctx.lineTo(width - 80, 260);
-        ctx.stroke();
-
-        ctx.fillStyle = '#f1c40f';
-        ctx.fillRect(80, 256, 12, 11);
-        ctx.fillRect(width - 92, 256, 12, 11);
-
-        // 6. Testo Principale
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'black 68px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        
-        ctx.shadowColor = '#00d2ff';
-        ctx.shadowBlur = 20;
-        ctx.fillText('URANUS BOT 👑', width / 2, 320);
-        ctx.shadowBlur = 0;
-
-        // 7. Sottotitolo
-        ctx.fillStyle = '#00f2fe';
-        ctx.font = 'bold 24px sans-serif';
-        ctx.fillText('OFFICIAL GAMING & COMMUNITY BOT', width / 2, 375);
-
-        // 8. Badges Tematici
-        ctx.fillStyle = '#a0a0c0';
-        ctx.font = 'bold 18px sans-serif';
-        ctx.fillText('⛏️ Minecraft SMP  •  🌵 Brawl Stars  •  🧱 Roblox Studio  •  🎵 24/7 Music', width / 2, 430);
-
-        // Invio dell'immagine generata
-        const buffer = canvas.toBuffer('image/png');
-        const attachment = new AttachmentBuilder(buffer, { name: 'uranus-bot-banner.png' });
-
-        const embedBanner = new EmbedBuilder()
-            .setTitle('🌌 Banner Ufficiale Uranus Bot')
-            .setDescription('Ecco l\'immagine del banner generata in risoluzione **1024x500**!')
-            .setColor('#00d2ff')
-            .setImage('attachment://uranus-bot-banner.png')
-            .setFooter({ text: 'Uranus.SMP • Reserved to Owner' });
-
-        return message.reply({ embeds: [embedBanner], files: [attachment] });
     }
 
     // COMANDO PLAY
@@ -444,10 +375,10 @@ client.on('messageCreate', async (message) => {
         return message.reply({ embeds: [embedQueue] });
     }
 
-    // COMANDO SELEZIONE PRESET SERVER (ESCLUSIVO PER TE)
+    // 👑 COMANDO PRESET SERVER (SOLO IL PROPRIETARIO DEL SERVER PUÒ ESEGUIRLO)
     if (command === 'preset-server') {
-        if (message.author.id !== OWNER_ID) {
-            return message.reply('❌ **Accesso Negato!** Solo il proprietario del bot può eseguire questo comando.');
+        if (message.author.id !== message.guild.ownerId) {
+            return message.reply('❌ **Accesso Negato!** Solo il **proprietario di questo server Discord** può eseguire questo comando.');
         }
 
         const menuPreset1 = new StringSelectMenuBuilder()
@@ -497,13 +428,14 @@ client.on('messageCreate', async (message) => {
 // GENERAZIONE CANALI, CATEGORIE, ICONA E INTERAZIONI
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isStringSelectMenu() && (interaction.customId === 'select_preset_1' || interaction.customId === 'select_preset_2')) {
-        if (interaction.user.id !== OWNER_ID) {
-            return interaction.reply({ content: '❌ Solo il proprietario può selezionare il preset.', ephemeral: true });
+        // Controllo proprietario server anche dal menu a tendina
+        if (interaction.user.id !== interaction.guild.ownerId) {
+            return interaction.reply({ content: '❌ Solo il proprietario di questo server può selezionare il preset.', ephemeral: true });
         }
 
         await interaction.deferReply();
         const guild = interaction.guild;
-        const { rOspite, rMembro, rAdmin } = await gestisciRuoli(guild);
+        const { rOwner, rOspite, rMembro, rMod, rAdmin } = await gestisciRuoli(guild);
         const everyone = guild.roles.everyone;
 
         const permMembri = [
@@ -606,19 +538,25 @@ client.on('interactionCreate', async (interaction) => {
             await guild.setAFKChannel(chAFK);
             await guild.setAFKTimeout(300);
 
+            // CATEGORIA STAFF RISERVATA
             const catStaff = await guild.channels.create({
                 name: '🔒 │ AREA STAFF',
                 type: ChannelType.GuildCategory,
                 permissionOverwrites: [
                     { id: everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
-                    { id: rAdmin.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+                    { id: rMod.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: rAdmin.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+                    { id: rOwner.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
                 ]
             });
             await guild.channels.create({ name: '💬│staff-chat', type: ChannelType.GuildText, parent: catStaff.id });
             await guild.channels.create({ name: '📋│log-verifiche', type: ChannelType.GuildText, parent: catStaff.id });
+            await guild.channels.create({ name: '🚨│segnalazioni', type: ChannelType.GuildText, parent: catStaff.id });
 
             await inviaPannelliBase(guild, chVerifica, chRegole);
-            await interaction.editReply(`✅ **Preset "${scelta}" applicato con successo!**\n- Generata nuova Icona Grafica automatica\n- Creati canali social (YouTube, TikTok, Twitter, Snapchat)\n- Attivate Vocali Temporanee, Sistema Musica e Zona AFK.`);
+
+            const serverOwner = await guild.fetchOwner().catch(() => null);
+            await interaction.editReply(`✅ **Preset "${scelta}" applicato con successo!**\n- Il ruolo **👑 Owner** è stato assegnato automaticamente a **${serverOwner ? serverOwner.user.tag : 'Proprietario Server'}**.`);
 
         } catch (err) {
             console.error(err);
@@ -626,7 +564,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // MODALI DI AUTENTICAZIONE
+    // INTERAZIONI PULSANTI REGISTRAZIONE / ACCESSO
     if (interaction.isButton()) {
         if (interaction.customId === 'btn_registrati') {
             const modal = new ModalBuilder().setCustomId('modal_registrati').setTitle('Registrazione Account');
@@ -644,19 +582,11 @@ client.on('interactionCreate', async (interaction) => {
             );
             await interaction.showModal(modal);
         }
-        if (interaction.customId === 'btn_admin') {
-            const modal = new ModalBuilder().setCustomId('modal_admin').setTitle('Autenticazione Admin');
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('input_admin_pass').setLabel('Master Password Admin').setStyle(TextInputStyle.Short).setRequired(true))
-            );
-            await interaction.showModal(modal);
-        }
     }
 
     if (interaction.isModalSubmit()) {
         const rOspite = interaction.guild.roles.cache.find(r => r.name === RUOLO_OSPITE);
         const rMembro = interaction.guild.roles.cache.find(r => r.name === RUOLO_VERIFICATO);
-        const rAdmin = interaction.guild.roles.cache.find(r => r.name === RUOLO_ADMIN);
 
         if (interaction.customId === 'modal_registrati') {
             const username = interaction.fields.getTextInputValue('input_user').trim().toLowerCase();
@@ -668,7 +598,7 @@ client.on('interactionCreate', async (interaction) => {
             utentiRegistrati.set(username, password);
             if (rOspite) await interaction.member.roles.remove(rOspite).catch(() => {});
             if (rMembro) await interaction.member.roles.add(rMembro).catch(() => {});
-            return interaction.reply({ content: `✅ Account **${username}** registrato con successo!`, ephemeral: true });
+            return interaction.reply({ content: `✅ Account **${username}** registrato con successo! Ti è stato assegnato il ruolo Membro.`, ephemeral: true });
         }
 
         if (interaction.customId === 'modal_accedi') {
@@ -680,17 +610,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (rOspite) await interaction.member.roles.remove(rOspite).catch(() => {});
             if (rMembro) await interaction.member.roles.add(rMembro).catch(() => {});
-            return interaction.reply({ content: `✅ Accesso eseguito come **${username}**!`, ephemeral: true });
-        }
-
-        if (interaction.customId === 'modal_admin') {
-            const adminPass = interaction.fields.getTextInputValue('input_admin_pass').trim();
-
-            if (adminPass !== ADMIN_MASTER_PASSWORD) {
-                return interaction.reply({ content: '❌ Master Password errata!', ephemeral: true });
-            }
-            if (rAdmin) await interaction.member.roles.add(rAdmin).catch(() => {});
-            return interaction.reply({ content: '👑 Autenticazione Admin riuscita!', ephemeral: true });
+            return interaction.reply({ content: `✅ Accesso eseguito come **${username}**! Benvenuto nel server.`, ephemeral: true });
         }
     }
 });
