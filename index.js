@@ -13,6 +13,15 @@ const {
     ChannelType,
     StringSelectMenuBuilder
 } = require('discord.js');
+const { 
+    joinVoiceChannel, 
+    createAudioPlayer, 
+    createAudioResource, 
+    AudioPlayerStatus, 
+    VoiceConnectionStatus,
+    getVoiceConnection
+} = require('@discordjs/voice');
+const play = require('play-dl');
 const { createCanvas } = require('canvas');
 const express = require('express');
 
@@ -44,8 +53,14 @@ const ADMIN_MASTER_PASSWORD = "UranusAdmin2026!";
 const utentiRegistrati = new Map();
 const tempChannels = new Map();
 
+// STRUTTURA STRUMETI MUSICA (Coda per ciascun Server)
+const musicQueues = new Map();
+
 client.once('ready', () => {
     console.log(`✅ Bot Uranus pronto e online come ${client.user.tag}!`);
+    
+    // Imposta lo stato/attività del bot
+    client.user.setActivity('!help | Uranus.SMP', { type: 3 }); // Type 3 = Watching
 });
 
 // 🎨 GENERATORE ICONA GRAFICA AUTOMATICA (AI/CANVAS)
@@ -55,7 +70,6 @@ function generaIconaServer(testoIniziale) {
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    // Sfondo Sfumato Moderno
     const gradient = ctx.createLinearGradient(0, 0, width, height);
     gradient.addColorStop(0, '#0f0c29');
     gradient.addColorStop(0.5, '#302b63');
@@ -63,14 +77,12 @@ function generaIconaServer(testoIniziale) {
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
 
-    // Cerchio di design
     ctx.strokeStyle = '#00d2ff';
     ctx.lineWidth = 15;
     ctx.beginPath();
     ctx.arc(256, 256, 210, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Testo / Iniziale del server
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 180px sans-serif';
     ctx.textAlign = 'center';
@@ -129,11 +141,198 @@ async function inviaPannelliBase(guild, chVerifica, chRegole) {
     await chVerifica.send({ embeds: [embedAuth], components: [bottoni] });
 }
 
-// COMANDO PER AVVIARE LA SELEZIONE PRESET
+// 🎵 FUNZIONE PER RIPRODURRE LA MUSICA
+async function playSong(guildId) {
+    const serverQueue = musicQueues.get(guildId);
+    if (!serverQueue || serverQueue.songs.length === 0) {
+        if (serverQueue && serverQueue.connection) {
+            serverQueue.connection.destroy();
+        }
+        musicQueues.delete(guildId);
+        return;
+    }
+
+    const song = serverQueue.songs[0];
+    try {
+        const stream = await play.stream(song.url);
+        const resource = createAudioResource(stream.stream, { inputType: stream.type });
+
+        serverQueue.player.play(resource);
+        serverQueue.connection.subscribe(serverQueue.player);
+
+        const embed = new EmbedBuilder()
+            .setTitle('🎶 In riproduzione')
+            .setDescription(`[${song.title}](${song.url})`)
+            .addFields(
+                { name: '⏱️ Durata', value: song.duration, inline: true },
+                { name: '👤 Richiesto da', value: `${song.requestedBy}`, inline: true }
+            )
+            .setColor('#00fbff');
+
+        serverQueue.textChannel.send({ embeds: [embed] });
+    } catch (err) {
+        console.error('Errore durante la riproduzione:', err);
+        serverQueue.textChannel.send('❌ Si è verificato un errore durante la riproduzione del brano.');
+        serverQueue.songs.shift();
+        playSong(guildId);
+    }
+}
+
+// COMANDI PRINCIPALI
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.content.startsWith('!')) return;
 
-    if (message.content === '!preset-server') {
+    const args = message.content.slice(1).trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    // COMANDO HELP / DESCRIZIONE BOT
+    if (command === 'help') {
+        const embedHelp = new EmbedBuilder()
+            .setTitle('🤖 URANUS BOT | COMANDI E GUIDA')
+            .setDescription('Ecco la lista di tutti i comandi disponibili per gestire il server e riprodurre musica:')
+            .addFields(
+                { 
+                    name: '🎵 Comandi Musica', 
+                    value: '• `!play <titolo/link>`: Riproduce una canzone o la aggiunge alla coda.\n' +
+                           '• `!skip`: Passa alla canzone successiva nella coda.\n' +
+                           '• `!stop`: Interrompe la musica e disconnette il bot dalla vocale.\n' +
+                           '• `!queue`: Mostra la lista dei brani in attesa.' 
+                },
+                { 
+                    name: '⚙️ Comandi Amministrazione (Owner)', 
+                    value: '• `!preset-server`: Apre il menu di configurazione per creare canali, categorie, ruoli e icona.' 
+                }
+            )
+            .setColor('#00d2ff')
+            .setFooter({ text: 'Uranus Bot • Sistema Multilivello' });
+
+        return message.reply({ embeds: [embedHelp] });
+    }
+
+    // COMANDO PLAY
+    if (command === 'play') {
+        const voiceChannel = message.member.voice.channel;
+        if (!voiceChannel) {
+            return message.reply('❌ Devi prima entrare in un canale vocale per usare questo comando!');
+        }
+
+        const query = args.join(' ');
+        if (!query) {
+            return message.reply('❌ Specificare un link YouTube o il nome di una canzone. Es: `!play canzone`');
+        }
+
+        let songInfo = null;
+
+        try {
+            if (play.yt_validate(query) === 'video') {
+                const info = await play.video_info(query);
+                songInfo = {
+                    title: info.video_details.title,
+                    url: info.video_details.url,
+                    duration: info.video_details.durationRaw,
+                    requestedBy: message.author
+                };
+            } else {
+                const searchResults = await play.search(query, { limit: 1 });
+                if (!searchResults || searchResults.length === 0) {
+                    return message.reply('❌ Nessun risultato trovato per la ricerca inserita.');
+                }
+                songInfo = {
+                    title: searchResults[0].title,
+                    url: searchResults[0].url,
+                    duration: searchResults[0].durationRaw,
+                    requestedBy: message.author
+                };
+            }
+        } catch (error) {
+            console.error(error);
+            return message.reply('❌ Errore nel recupero della canzone. Riprova con un altro titolo/link.');
+        }
+
+        let serverQueue = musicQueues.get(message.guild.id);
+
+        if (!serverQueue) {
+            serverQueue = {
+                textChannel: message.channel,
+                voiceChannel: voiceChannel,
+                connection: null,
+                player: createAudioPlayer(),
+                songs: []
+            };
+
+            musicQueues.set(message.guild.id, serverQueue);
+            serverQueue.songs.push(songInfo);
+
+            try {
+                const connection = joinVoiceChannel({
+                    channelId: voiceChannel.id,
+                    guildId: message.guild.id,
+                    adapterCreator: message.guild.voiceAdapterCreator
+                });
+
+                serverQueue.connection = connection;
+
+                // Listener evento termine brano
+                serverQueue.player.on(AudioPlayerStatus.Idle, () => {
+                    serverQueue.songs.shift();
+                    playSong(message.guild.id);
+                });
+
+                playSong(message.guild.id);
+            } catch (err) {
+                console.error(err);
+                musicQueues.delete(message.guild.id);
+                return message.reply('❌ Impossibile connettersi al canale vocale.');
+            }
+        } else {
+            serverQueue.songs.push(songInfo);
+            return message.reply(`✅ **${songInfo.title}** aggiunta alla coda!`);
+        }
+    }
+
+    // COMANDO SKIP
+    if (command === 'skip') {
+        const serverQueue = musicQueues.get(message.guild.id);
+        if (!message.member.voice.channel) return message.reply('❌ Devi essere in un canale vocale per saltare la musica!');
+        if (!serverQueue) return message.reply('❌ Non c\'è nessuna canzone in riproduzione.');
+        
+        serverQueue.player.stop();
+        return message.reply('⏭️ Canzone saltata!');
+    }
+
+    // COMANDO STOP
+    if (command === 'stop') {
+        const serverQueue = musicQueues.get(message.guild.id);
+        if (!message.member.voice.channel) return message.reply('❌ Devi essere in un canale vocale per fermare la musica!');
+        if (!serverQueue) return message.reply('❌ Non c\'è nessuna musica da fermare.');
+
+        serverQueue.songs = [];
+        serverQueue.player.stop();
+        if (serverQueue.connection) serverQueue.connection.destroy();
+        musicQueues.delete(message.guild.id);
+
+        return message.reply('⏹️ Riproduzione interrotta e disconnesso dal canale.');
+    }
+
+    // COMANDO QUEUE
+    if (command === 'queue') {
+        const serverQueue = musicQueues.get(message.guild.id);
+        if (!serverQueue || serverQueue.songs.length === 0) {
+            return message.reply('📄 La coda musicale è attualmente vuota.');
+        }
+
+        const list = serverQueue.songs.map((song, i) => `${i === 0 ? '▶️ **In riproduzione:**' : `**${i}.**`} ${song.title} - \`${song.duration}\``).join('\n');
+        
+        const embedQueue = new EmbedBuilder()
+            .setTitle('📋 Coda Musicale')
+            .setDescription(list)
+            .setColor('#5865F2');
+
+        return message.reply({ embeds: [embedQueue] });
+    }
+
+    // COMANDO SELEZIONE PRESET SERVER
+    if (command === 'preset-server') {
         if (message.author.id !== OWNER_ID) {
             return message.reply('❌ **Accesso Negato!** Solo il proprietario del server può eseguire questo comando.');
         }
@@ -182,7 +381,7 @@ client.on('messageCreate', async (message) => {
     }
 });
 
-// GENERAZIONE CANALI, CATEGORIE, ICONA E DESCRIZIONE
+// GENERAZIONE CANALI, CATEGORIE, ICONA E INTERAZIONI
 client.on('interactionCreate', async (interaction) => {
     if (interaction.isStringSelectMenu() && (interaction.customId === 'select_preset_1' || interaction.customId === 'select_preset_2')) {
         if (interaction.user.id !== OWNER_ID) {
@@ -207,7 +406,6 @@ client.on('interactionCreate', async (interaction) => {
         ];
 
         try {
-            // 🎨 ICONA E DESCRIZIONE GENERATI AUTOMATICAMENTE
             const iconBuffer = generaIconaServer(guild.name);
             await guild.setIcon(iconBuffer);
             
@@ -216,13 +414,11 @@ client.on('interactionCreate', async (interaction) => {
                 await guild.setDescription(desc);
             }
 
-            // CATEGORIA BASE INFORMAZIONI
             const catInfo = await guild.channels.create({ name: '📋 │ INFORMAZIONI & VERIFICA', type: ChannelType.GuildCategory });
             const chVerifica = await guild.channels.create({ name: '🔒│verifica', type: ChannelType.GuildText, parent: catInfo.id, permissionOverwrites: permLettura });
             const chRegole = await guild.channels.create({ name: '📜│regolamento', type: ChannelType.GuildText, parent: catInfo.id, permissionOverwrites: permLettura });
             await guild.channels.create({ name: '📢│annunci-server', type: ChannelType.GuildText, parent: catInfo.id, permissionOverwrites: permLettura });
 
-            // CATEGORIA MEDIA & SOCIAL FEED
             const catSocial = await guild.channels.create({ name: '📡 │ FEED SOCIAL & MEDIA', type: ChannelType.GuildCategory, permissionOverwrites: permMembri });
             const chYT = await guild.channels.create({ name: '📺│youtube-feed', type: ChannelType.GuildText, parent: catSocial.id, permissionOverwrites: permLettura });
             const chTikTok = await guild.channels.create({ name: '🎵│tiktok-feed', type: ChannelType.GuildText, parent: catSocial.id, permissionOverwrites: permLettura });
@@ -236,7 +432,6 @@ client.on('interactionCreate', async (interaction) => {
 
             const scelta = interaction.values[0];
 
-            // CONFIGURAZIONE SPECIFICA DEI CANALI IN BASE AL PRESET
             if (scelta === 'preset_smp') {
                 const cat = await guild.channels.create({ name: '⛏️ │ MINECRAFT SMP', type: ChannelType.GuildCategory, permissionOverwrites: permMembri });
                 await guild.channels.create({ name: '🌐│ip-server', type: ChannelType.GuildText, parent: cat.id });
@@ -268,18 +463,15 @@ client.on('interactionCreate', async (interaction) => {
                 await guild.channels.create({ name: '🎵│playlist-sharing', type: ChannelType.GuildText, parent: cat.id });
                 await guild.channels.create({ name: '🎹│beat-feedback', type: ChannelType.GuildText, parent: cat.id });
             } else {
-                // CATEGORIA COMMUNITY PER TUTTI GLI ALTRI PRESET
                 const cat = await guild.channels.create({ name: '💬 │ CHAT & COMMUNITY', type: ChannelType.GuildCategory, permissionOverwrites: permMembri });
                 await guild.channels.create({ name: '💬│chat-generale', type: ChannelType.GuildText, parent: cat.id });
                 await guild.channels.create({ name: '📸│media-e-foto', type: ChannelType.GuildText, parent: cat.id });
                 await guild.channels.create({ name: '🎮│gaming-chat', type: ChannelType.GuildText, parent: cat.id });
             }
 
-            // STANZE VOCALI TEMPORANEE
             const catTempVoice = await guild.channels.create({ name: '➕ │ STANZE VOCALI TEMPORANEE', type: ChannelType.GuildCategory, permissionOverwrites: permMembri });
             await guild.channels.create({ name: '➕ Crea Stanza Privata', type: ChannelType.GuildVoice, parent: catTempVoice.id });
 
-            // ZONA AFK
             const catAFK = await guild.channels.create({ name: '💤 │ ZONA AFK', type: ChannelType.GuildCategory, permissionOverwrites: permMembri });
             const chAFK = await guild.channels.create({
                 name: '💤│Muto e Inattivo',
@@ -301,7 +493,6 @@ client.on('interactionCreate', async (interaction) => {
             await guild.setAFKChannel(chAFK);
             await guild.setAFKTimeout(300);
 
-            // AREA STAFF
             const catStaff = await guild.channels.create({
                 name: '🔒 │ AREA STAFF',
                 type: ChannelType.GuildCategory,
@@ -314,7 +505,7 @@ client.on('interactionCreate', async (interaction) => {
             await guild.channels.create({ name: '📋│log-verifiche', type: ChannelType.GuildText, parent: catStaff.id });
 
             await inviaPannelliBase(guild, chVerifica, chRegole);
-            await interaction.editReply(`✅ **Preset "${scelta}" applicato con successo!**\n- Generata nuova Icona Grafica automatica\n- Creati canali social (YouTube, TikTok, Twitter, Snapchat)\n- Attivate Vocali Temporanee e Zona AFK.`);
+            await interaction.editReply(`✅ **Preset "${scelta}" applicato con successo!**\n- Generata nuova Icona Grafica automatica\n- Creati canali social (YouTube, TikTok, Twitter, Snapchat)\n- Attivate Vocali Temporanee, Sistema Musica e Zona AFK.`);
 
         } catch (err) {
             console.error(err);
